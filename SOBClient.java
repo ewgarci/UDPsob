@@ -1,11 +1,14 @@
 package sobs;
 
+import java.net.InetAddress;
+
 public class SOBClient {
 	private String retMsg;
 	private String username;
 	private boolean isRegistered;
-	private String ipAddress;
-	private int port;
+	private InetAddress ipAddress;
+	private int mainPort;
+	private int listenPort;
 	
 	
 	public boolean isRegistered() {
@@ -26,21 +29,30 @@ public class SOBClient {
 	public void setRetMsg(String retMsg) {
 		this.retMsg = retMsg;
 	}
-	public String getIpAddress() {
+	public InetAddress getIpAddress() {
 		return ipAddress;
 	}
-	public void setIpAddress(String ipAddress) {
+	public void setIpAddress(InetAddress ipAddress) {
 		this.ipAddress = ipAddress;
 	}
-	public int getPort() {
-		return port;
-	}
-	public void setPort(int port) {
-		this.port = port;
-	}
-	
 	public SOBClient(){
 		this.setRegistered(false);
+	}
+	public int getMainPort() {
+		return mainPort;
+	}
+	public void setMainPort(int mainPort) {
+		this.mainPort = mainPort;
+	}
+	public int getListenPort() {
+		return listenPort;
+	}
+	public void setListenPort(int listenPort) {
+		this.listenPort = listenPort;
+	}
+	public String printClient() {
+		return this.username + " " + this.ipAddress.getHostAddress() + " " + this.mainPort + " " + this.listenPort;		
+		
 	}
 	
 	

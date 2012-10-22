@@ -1,49 +1,50 @@
 package sobs;
 
 
-import java.io.BufferedReader;
-import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.Scanner;
 
 public class Server {
 	public int port = 1337;
-	ServerSocket listenSocket;
+	public DatagramSocket serverSocket;
 	public int currItemNumber;
 	public Hashtable<String, SOBClient> clientTable;
 	public Hashtable<String, SOBItem> itemTable;
-	
-	 public Server() {
-	        try {
-	            this.listenSocket = new ServerSocket(port);
-	            this.currItemNumber = 0;
-	            this.clientTable = new Hashtable<String, SOBClient>();
-	            this.itemTable = new Hashtable<String, SOBItem>();
-	        } catch (IOException e) {
-	            e.printStackTrace();
-	        }
-	 }
+
+	public Server() {
+		try {
+			this.serverSocket = new DatagramSocket(this.port);
+			this.currItemNumber = 0;
+			this.clientTable = new Hashtable<String, SOBClient>();
+			this.itemTable = new Hashtable<String, SOBItem>();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 	
 	 public static void main(String args[]) {
-		 try {
-			 Server server = new Server();
-			 System.out.println("Starting Server");
+	     	 try {
+				 Server server = new Server();
+				 
+				 System.out.println("Starting Server");
 
-			 while(true) {
-				 Socket connectionSocket = server.listenSocket.accept();
-				 new ConnectionHandler(connectionSocket, server);
+				 while(true) {
+					 byte[] receiveData = new byte[1024];
+	                 DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+	                 server.serverSocket.receive(receivePacket);
+					 new ConnectionHandler(server.serverSocket, server, receivePacket);
+				 }
+			 }
+			 catch(Exception e) {
+				 e.printStackTrace();
+				 System.exit(1);
 			 }
 		 }
-		 catch(Exception e) {
-			 e.printStackTrace();
-			 System.exit(1);
-		 }
-	 }
 	
 	public static void startServer(){
 		String cmd;
@@ -63,10 +64,10 @@ public class Server {
 					if (port > 1024 && port < 65535){
 						//startServer(port);
 					}else{
-						System.out.println("Error: argumentsgument" + " must be an integer between 1024-65535");
+						System.out.println("Error: arguments" + " must be an integer between 1024-65535");
 					}
 				} catch (NumberFormatException e) {
-					System.out.println("Error: argumentsgument" + " must be an integer between 1024-65535");
+					System.out.println("Error: arguments" + " must be an integer between 1024-65535");
 				}
 			}else{
 				System.out.println("Error invalid command");
@@ -79,51 +80,158 @@ public class Server {
 		this.currItemNumber++;
 		return this.currItemNumber;
 	}
+
+	public String[] clientTableToArray() {
+		String str[] = new String[clientTable.size() + 1];
+		Enumeration<String> e = clientTable.keys();
+		int count = 1;
+		
+	    //iterate through Hashtable keys Enumeration
+	    while(e.hasMoreElements()){
+	    	  System.out.println(e);
+	    	  String key = e.nextElement();
+	    	  SOBClient client_l = clientTable.get(key);
+	    	  str[count] =  client_l.printClient();
+	    	  count++;
+	    	}
+	    
+	    str[0]= "&table& " + count;
+		
+	    return str;
+	}
 }
 
-
 class ConnectionHandler implements Runnable {
-	private Socket socket;
+	private DatagramSocket socket;
 	private Server server;
 	private String retMsg;
+	private DatagramPacket receivePacket;
 	private SOBClient client;
+	private String longMsg [];
+	private boolean longMsgFlag;
+	private String sellMsg;
+	private boolean sellMsgFlag;
+	private boolean updateClientTablesFlag;
+	
 
 
-	public ConnectionHandler(Socket socket, Server server) {
-		this.socket = socket;
+	public ConnectionHandler(DatagramSocket serverSocket, Server server, DatagramPacket receivePacket) {
+		this.socket = serverSocket;
 		this.server = server;
+		this.receivePacket = receivePacket;
+		this.longMsgFlag = false;
+		this.updateClientTablesFlag = false;
 		Thread t = new Thread(this);
 		t.start();
 	}
 
+
 	public void run() {
 		try{
-			
-//			String clientSentence, capitalizedSentence;
-//			 BufferedReader inFromClient = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-//			 DataOutputStream outToClient = new DataOutputStream(socket.getOutputStream());
-//			 System.out.println("In Thread");
-//			 clientSentence = inFromClient.readLine();
-//			 System.out.println("Received: " + clientSentence);
-//			 capitalizedSentence = clientSentence.toUpperCase() + '\n';
-//			 outToClient.writeBytes(capitalizedSentence);
-			this.client = new SOBClient();
-			String msg;
-			BufferedReader inFromClient = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-			DataOutputStream outToClient = new DataOutputStream(socket.getOutputStream());
-			
-			while(true){
-				msg = inFromClient.readLine();
-				System.out.println("Received: " + msg);
-				checkInput(client, msg);
-				System.out.println("Sending " + this.retMsg);
-				outToClient.writeBytes(this.retMsg + "\n");
+			InetAddress ip = receivePacket.getAddress();
+			int port = receivePacket.getPort();
+
+			byte rawPacket[] = receivePacket.getData();
+			for (int j = 0; j < rawPacket.length; j++){
+				if (rawPacket[j] == 0){
+					rawPacket[j] = 32;
+					break;
+				}
 			}
+			String msg = new String(rawPacket);
+			System.out.println("\nRECEIVED: " + msg);
+			
+			String cmd[] = msg.split("[ ]+");
+
+			this.client = checkClient(ip, port, cmd[0]);
+
+			checkInput(client, msg);
+
+			System.out.println("SENDING: " + retMsg);
+			byte[] sendData = new byte[1188];
+            sendData = retMsg.getBytes();
+			DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, this.client.getIpAddress(), this.client.getMainPort());
+	        socket.send(sendPacket);
+	        
+	        if(longMsgFlag){
+	        	sendStringArray(longMsg);
+	        }
+	        
+	        if(updateClientTablesFlag){
+	        	updateClientTables();
+	        }
+			
 		}catch(Exception e) {
 			e.printStackTrace();
 			System.exit(1);
 		}
 	}
+
+	private void sendStringArray(String[] msgArray) {
+		for (int i = 0; i< msgArray.length; i++){
+			byte[] sendData = new byte[1188];
+            sendData = longMsg[i].getBytes();
+            DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, this.client.getIpAddress(), this.client.getMainPort());
+			System.out.println("SENDING: " + longMsg[i]);
+			try {
+				this.socket.send(sendPacket);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+    	}
+	}
+
+
+	private void updateClientTables() {
+		System.out.println("Updating Tables ");
+		Enumeration<String> e = this.server.clientTable.keys();
+		String clientTableArray[] = server.clientTableToArray();
+		//iterate through Hashtable
+		while(e.hasMoreElements()){
+			String key = e.nextElement();
+			SOBClient client_l = this.server.clientTable.get(key);
+			for(int i = 0; i < clientTableArray.length; i ++){
+				byte[] sendData = new byte[1188];
+				sendData = clientTableArray[i].getBytes();
+				DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, client_l.getIpAddress(), client_l.getListenPort());
+				System.out.println("SENDING TO "+ client_l.getUsername().toUpperCase() + ": " + clientTableArray[i]);
+				try {
+					this.socket.send(sendPacket);
+				} catch (IOException ex) {
+					ex.printStackTrace();
+				}
+			}
+
+		}
+	}
+
+
+	private SOBClient checkClient(InetAddress ip, int port, String cmd) {
+		Enumeration<String> e = this.server.clientTable.keys();
+
+		//iterate through Hashtable
+		while(e.hasMoreElements() && !cmd.equals("register")){
+			String key = e.nextElement();
+			SOBClient client_l = this.server.clientTable.get(key);
+			System.out.println("Main " + client_l.getMainPort() + " Listen " + client_l.getListenPort() + " ip " + client_l.getIpAddress().getHostAddress());
+			System.out.println("port " + port + " ip " + ip.getHostAddress());
+			if ( (port == client_l.getMainPort() || port == client_l.getListenPort()) 
+					&& (ip.getHostAddress().equalsIgnoreCase(client_l.getIpAddress().getHostAddress()))  ){
+				System.out.println(client_l.getUsername() + " has been registered before");
+				return client_l;
+			}
+
+		}
+		
+		
+		System.out.println("New client who has never registered");
+		this.client = new SOBClient();
+		this.client.setRegistered(false);
+		this.client.setMainPort(port);
+		this.client.setIpAddress(ip);
+		return this.client;
+	}
+
 
 	public void checkInput(SOBClient client, String msg){
 		String desc[] = msg.split("\"");
@@ -140,7 +248,7 @@ class ConnectionHandler implements Runnable {
 
 		switch (cmd[0]) {
 		case "register":
-			if (cmd.length == 4) {
+			if (cmd.length >= 3) {
 				registerUser(cmd);
 			}else{
 				this.retMsg = "Error: arguments";
@@ -186,6 +294,8 @@ class ConnectionHandler implements Runnable {
 				this.retMsg = "Error: Not Registered";
 			}else{
 				this.client.setRegistered(false);
+				this.server.clientTable.remove(this.client.getUsername());
+				updateClientTablesFlag = true;
 				this.retMsg = "You have successfully signed out. Bye!";
 			}
 			break;
@@ -202,7 +312,7 @@ class ConnectionHandler implements Runnable {
 		int bid_increment;
 		SOBItem currItem;
 		
-		if(cmd.length != 3){
+		if(cmd.length < 3){
 			this.retMsg = "Error: arguments";
 			return;
 		}
@@ -265,21 +375,24 @@ class ConnectionHandler implements Runnable {
 	}
 
 	private void registerUser(String cmd[]) {
-		int port;
+		int listenPort;
 		try{
-			port = Integer.parseInt(cmd[3]);
+			listenPort = Integer.parseInt(cmd[2]);
 		} catch (NumberFormatException e) {
 			this.retMsg = "Error: arguments";
 			return;
 		}
 		
-		System.out.println("cmd[1] = " + cmd[1]);
+		updateClientTablesFlag = true;
 		
 		if(this.server.clientTable.containsKey(cmd[1])){
 			System.out.println(cmd[1] + " exists");
+			InetAddress tempIP = this.client.getIpAddress();
+			int tempMainPort = this.client.getMainPort();
 			this.client = this.server.clientTable.get(cmd[1]);
-			this.client.setPort(port);
-			this.client.setIpAddress(cmd[2]);
+			this.client.setIpAddress(tempIP);
+			this.client.setMainPort(tempMainPort);
+			this.client.setListenPort(listenPort);
 			this.client.setRegistered(true);
 			System.out.println("this.client =  " + this.client.toString());
 			System.out.println("Hashtable =  " + this.server.clientTable.toString());
@@ -288,9 +401,8 @@ class ConnectionHandler implements Runnable {
 		}
 		
 		System.out.println(cmd[1] + " does not exists");
-		this.client.setPort(port);
+		this.client.setListenPort(listenPort);
 		this.client.setUsername(cmd[1]);
-		this.client.setIpAddress(cmd[2]);
 		this.client.setRegistered(true);
 		this.server.clientTable.put(this.client.getUsername(), this.client);
 		System.out.println("this client =  " + this.client.toString());
@@ -304,7 +416,7 @@ class ConnectionHandler implements Runnable {
 			return;
 		}
 		
-		if(desc.length  != 2){
+		if(desc.length  < 2){
 			this.retMsg = "Error: arguments";
 			return;
 		}
@@ -352,18 +464,19 @@ class ConnectionHandler implements Runnable {
 		
 		int item_number;
 				
-		if(cmd.length == 1){
+		if(cmd.length == 2){
 			if( this.server.itemTable.isEmpty()){
 				this.retMsg = "Error: empty";
 				return;
 			}
 			else{
 				this.retMsg = printItemTable();
+				this.longMsgFlag = true;
 				return;
 			}
 		}
 			
-		else if (cmd.length >= 2){
+		else if (cmd.length >= 3){
 			try{
 				item_number = Integer.parseInt(cmd[1]);
 			} catch (NumberFormatException e) {
@@ -391,14 +504,16 @@ class ConnectionHandler implements Runnable {
 	}
 
 	private String printItemTable() {
-		String str = "";
+		this.longMsg = new String[server.itemTable.size()];
+		int count = 0;
 		for (int i = 1; i <= server.currItemNumber; i++){
 	    	  SOBItem item_l = this.server.itemTable.get("" + i);
 	    	  if (item_l != null){
-	    		  str +=  "(*)" + item_l.printItem();
+	    		  longMsg[count] =  "\n" + item_l.printItem();
+	    		  count++;
 	    	  }
 		}
-		return str;
+		return "&long& " + count;
 		
 //		Enumeration<String> e = this.server.itemTable.keys();
 //		String str = "";

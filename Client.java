@@ -1,38 +1,182 @@
 package sobs;
 
+
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.Inet4Address;
-import java.net.Inet6Address;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.InetAddress;
-import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.UnknownHostException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.Scanner;
 
 public class Client {
-	public List <SOBClient> clientTable;
+	public Hashtable<String, SOBClient> clientTable;
+	DatagramSocket clientSocket;
+	byte[] sendData;
+	byte[] receiveData;
+	int port;
+	InetAddress IPAddress;
+	InetAddress host;
+	ClientServer cs;
 	
 	
+	public Client() {
+		try {
+			this.clientSocket =  new DatagramSocket();
+			this.clientSocket.setSoTimeout(500);
+			this.IPAddress = InetAddress.getByName("localhost");
+			this.port = 1337;
+			this.clientTable = new Hashtable<String, SOBClient>();
+		} catch (IOException e) {
+			e.printStackTrace();
+			System.exit(1);
+		}
+
+	}
 	
 	 public static void main(String args[]) throws IOException {
-		 initConnection("localhost", 1337);
+		 //initConnection("localhost", 1337);
+		 
+		 Client client = new Client();
+		 
+			try{
+				BufferedReader inFromUser = new BufferedReader(new InputStreamReader(System.in));
+				
+
+				while(true){
+					client.sendData = new byte[1188];
+					System.out.print("sobs> ");
+					String msg = inFromUser.readLine();
+					
+					String cmd[] = msg.split(" ");
+					if (cmd[0].equals("register")){
+						//stop old thread from running
+						if (client.cs != null){
+							client.cs.run = false;
+						}
+						//Start new thread to accept requests from other users and server
+						client.cs = new ClientServer(client);
+						msg = msg + " " + client.cs.listenSocket.getLocalPort();
+					}
+					
+					client.sendData = msg.getBytes();
+					client.sendToServer();
+					
+					
+					
+				}
+			}catch(IOException e){
+				e.printStackTrace();
+			}
 	
 		 
 	 }
+	 
+	 public void sendToServer(){
+			int i = 0;
+			int timeoutAttempt = 5;
+
+			this.receiveData = new byte[1188];
+
+			System.out.print("sobs> ");
+			while (i < timeoutAttempt){
+				try{
+					DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, this.port);
+					this.clientSocket.send(sendPacket);
+					DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+					clientSocket.receive(receivePacket);
+
+					byte rawPacket[] = receivePacket.getData();
+					for (int j = 0; j < rawPacket.length; j++){
+						if (rawPacket[j] == 0)
+							rawPacket[j] = 32;
+					}
+
+					String retMsg = new String(rawPacket);
+					String cmd[] = retMsg.split("[ ]+");
+
+					if (cmd[0].equals("&long&")){
+						int n = 1;
+						try{
+							n = Integer.parseInt(cmd[1]);
+						} catch (NumberFormatException e) {
+							e.printStackTrace();
+						}
+						recieveNMessages(n);
+						break;
+					}
+
+					else{
+						System.out.print("[");
+						for (int j = 0; j < cmd.length; j++){
+							if (j > 0)
+								System.out.print(" ");
+							System.out.print(cmd[j]);
+						}
+						System.out.println("]");
+						break;
+					}
+				}catch(SocketTimeoutException  e){
+					i++;
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+
+			if (i == timeoutAttempt){
+				System.out.println("Error: Timeout Limit Reached");
+			}
+
+		}
 		 	
 		 
 
-	 public void checkInput(String msg){
+	 private void recieveNMessages(int n) {
+
+
+		 System.out.print("[");
+		 try{
+			 for (int i = 0; i<n; i++){ 
+
+				 this.receiveData = new byte[1188];
+				 DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+				 clientSocket.receive(receivePacket);
+
+				 byte rawPacket[] = receivePacket.getData();
+				 for (int j = 0; j < rawPacket.length; j++){
+					 if (rawPacket[j] == 0)
+						 rawPacket[j] = 32;
+				 }
+
+				 String retMsg = new String(rawPacket);
+				 String cmd[] = retMsg.split("[ ]+");
+
+
+
+				 for (int j = 0; j < cmd.length; j++){
+					 if (j > 0)
+						 System.out.print(" ");
+					 System.out.print(cmd[j]);
+				 }
+			 }
+			 System.out.println("]");
+		 	}catch (IOException e) {
+				 e.printStackTrace();
+			 }
+
+	}
+
+	public void checkInput(String msg){
 		 System.out.print("sobs> ");
 		 Scanner in = new Scanner(System.in);
 		 String str;
 		 String cmd[];
-		 int retValue;
 
 		 while(true){
 			 str = in.nextLine();
@@ -41,29 +185,12 @@ public class Client {
 
 			 if (cmd[0] == null) {
 				 System.out.println("Error: Invalid command");
+				 break;
 			 }	 
 		 }
+		 in.close();
 	 }
 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-		 
-
-		 
-		 
 //	public static void CheckForStart() throws UnknownHostException {
 //		 String cmd;
 //			Scanner in = new Scanner(System.in);
@@ -121,7 +248,7 @@ public class Client {
 		 }
 	 }
 
-	 public static void initConnection(String ipAddress, int port){
+	 public void initConnection(String ipAddress, int port){
 		 String sentence;
 		 String retMsg;
 		 InetAddress host;
@@ -154,13 +281,121 @@ public class Client {
 				 retMsg = retMsg.replace("(*)", "\n");
 				 System.out.println("[" + retMsg + "]");
 				 }
-				 //clientSocket.close();
+			
 				
 			 } catch (IOException e) {
-				 // TODO Auto-generated catch block
 				 e.printStackTrace();
+				 clientSocket.close();
 				 System.exit(1);
 			 }
 		 }
 	 
 }
+
+class ClientServer extends Thread{
+	DatagramSocket listenSocket;
+	Client client;
+	boolean run;
+
+
+	public ClientServer(Client client) {
+		try {
+			listenSocket =  new DatagramSocket();
+			this.client = client;
+			this.run = true;
+		} catch (SocketException e) {
+			e.printStackTrace();
+		}
+		start();
+	}
+
+	public void run(){		
+		try{
+			while(this.run == true){
+				byte[] receiveData = new byte[1188];
+				DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+				this.listenSocket.receive(receivePacket);
+				
+				
+				byte rawPacket[] = receivePacket.getData();
+				for (int j = 0; j < rawPacket.length; j++){
+					if (rawPacket[j] == 0)
+						rawPacket[j] = 32;
+				}
+				
+				System.out.print("sobs> ");
+				String retMsg = new String(rawPacket);
+				String cmd[] = retMsg.split("[ ]+");
+				
+				if (cmd[0].equals("&table&")){
+					int n = 1;
+					try{
+						n = Integer.parseInt(cmd[1]);
+					} catch (NumberFormatException e) {
+						e.printStackTrace();
+					}
+					updateTable(n);
+					continue;
+				}
+				
+				
+				System.out.print("[");
+				for (int j = 0; j < cmd.length; j++){
+					if (j > 0)
+						System.out.print(" ");
+					System.out.print(cmd[j]);
+				}
+				System.out.println("]");
+			}
+		}catch(IOException e){
+			e.printStackTrace();
+		}
+	}
+	
+	private void updateTable(int n) {
+		client.clientTable.clear();
+		try{
+			for (int i = 1; i<n; i++){ 
+				byte[] receiveData = new byte[1188];
+				receiveData = new byte[1188];
+				DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+				this.listenSocket.receive(receivePacket);
+
+
+				byte rawPacket[] = receivePacket.getData();
+				for (int j = 0; j < rawPacket.length; j++){
+					if (rawPacket[j] == 0)
+						rawPacket[j] = 32;
+				}
+
+				String retMsg = new String(rawPacket);
+				String cmd[] = retMsg.split("[ ]+");
+
+
+				int mp = 0, lp = 0;
+				try{
+					mp = Integer.parseInt(cmd[2]);
+					lp = Integer.parseInt(cmd[3]);
+				} catch (NumberFormatException e) {
+					e.printStackTrace();
+				}
+
+				for (int j = 0; j < cmd.length; j++){
+					SOBClient temp = new SOBClient();
+					temp.setUsername(cmd[0]);
+					temp.setIpAddress(InetAddress.getByName(cmd[1]));
+					temp.setMainPort(mp);
+					temp.setListenPort(lp);
+					client.clientTable.put(temp.getUsername(), temp);
+				}
+				
+			}
+		}catch (IOException e) {
+			e.printStackTrace();
+		}
+		System.out.println("[Client Table Updated.]");
+		System.out.println(client.clientTable.toString());
+	}
+
+}
+
