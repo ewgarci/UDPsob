@@ -1,6 +1,5 @@
 package sobs;
 
-import java.util.List;
 
 public class SOBItem {
 	private int transactionLimit;

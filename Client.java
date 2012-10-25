@@ -24,6 +24,7 @@ public class Client {
 	InetAddress IPAddress;
 	InetAddress host;
 	ClientServer cs;
+	String localUser;
 	
 	
 	public Client() {
@@ -54,15 +55,37 @@ public class Client {
 					System.out.print("sobs> ");
 					String msg = inFromUser.readLine();
 					
-					String cmd[] = msg.split(" ");
-					if (cmd[0].equals("register")){
+					String cmd[] = msg.split("[ ]+");
+					if (cmd.length > 1 && cmd[0].equals("register")){
+						client.localUser= cmd[1];
 						//stop old thread from running
 						if (client.cs != null){
 							client.cs.run = false;
+							client.cs.interrupt();
 						}
 						//Start new thread to accept requests from other users and server
 						client.cs = new ClientServer(client);
 						msg = msg + " " + client.cs.listenSocket.getLocalPort();
+					}
+					
+					if (client.localUser == null){
+						System.out.println("sobs> Error not registered");
+						continue;
+					}
+						
+					
+					if (cmd[0].equals("buy")){
+						client.directBuy(msg);
+						continue;
+					}
+					
+					if (cmd[0].equals("deregister")){
+						client.localUser= null;
+						//stop old thread from running
+						if (client.cs != null){
+							client.cs.run = false;
+							client.cs.interrupt();
+						}
 					}
 					
 					client.sendData = msg.getBytes();
@@ -290,6 +313,94 @@ public class Client {
 			 }
 		 }
 	 
+	 private void directBuy(String msg) {
+
+		 String cmd[] = msg.split("[ ]+");
+		 
+		 if (cmd.length < 3){
+			 System.out.print( "Error: arguments");
+			 return;
+		 }
+
+		 SOBClient user = this.clientTable.get(cmd[1]);
+
+		 if (user != null){
+			 String sellerMsg = "&buy& " + this.localUser + " wants to buy your " + cmd[2];
+			 if (sendUserMsg(user, sellerMsg, cmd[1]))
+				 return;
+		 }
+		 
+		 //offline buy
+		 this.directSell(this.localUser, cmd[2]);
+
+	 }
+
+
+	private boolean sendUserMsg(SOBClient user, String msg, String name) {
+		//System.out.println("Sending Message to " + user.getUsername());
+		
+		int i = 0;
+		int timeoutAttempt = 5;
+		DatagramSocket sendSocket = null;
+
+		byte [] receiveData = new byte[1188];
+		byte[] sendData = new byte[1188];
+		sendData = msg.getBytes();
+		
+		try {
+			sendSocket =  new DatagramSocket();
+			sendSocket.setSoTimeout(500);
+		} catch (SocketException e1) {
+			e1.printStackTrace();
+		}
+		
+		while (i < timeoutAttempt){
+			try{
+				DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, user.getIpAddress(), user.getListenPort());
+				sendSocket.send(sendPacket);
+				DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+				sendSocket.receive(receivePacket);
+
+				byte rawPacket[] = receivePacket.getData();
+				for (int j = 0; j < rawPacket.length; j++){
+					if (rawPacket[j] == 0)
+						rawPacket[j] = 32;
+				}
+
+				
+				System.out.println("sobs> [" + name + " has recieved your request.]");
+				break;
+			}catch(SocketTimeoutException  e){
+				i++;
+			} catch (IOException e) {
+				e.printStackTrace();
+			}			
+
+		}
+		
+		try {
+			sendSocket.setSoTimeout(0);
+		} catch (SocketException e1) {
+			e1.printStackTrace();
+		}
+		
+		sendSocket.close();
+		
+		if (i == timeoutAttempt)
+			return false;
+		else
+			return true;
+
+	}
+
+	public void directSell(String customer, String item) {
+		String saleMsg = "direct "+ item + " " + customer;
+		System.out.println("direct " + item + " " + customer);
+		//offline buy
+		this.sendData = saleMsg.getBytes();
+		this.sendToServer();		
+	}
+	 
 }
 
 class ClientServer extends Thread{
@@ -311,6 +422,9 @@ class ClientServer extends Thread{
 
 	public void run(){		
 		try{
+			byte[] sendAck = new byte[1188];
+			sendAck = "Ack".getBytes();
+			
 			while(this.run == true){
 				byte[] receiveData = new byte[1188];
 				DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
@@ -323,7 +437,7 @@ class ClientServer extends Thread{
 						rawPacket[j] = 32;
 				}
 				
-				System.out.print("sobs> ");
+				//System.out.print("sobs> ");
 				String retMsg = new String(rawPacket);
 				String cmd[] = retMsg.split("[ ]+");
 				
@@ -339,19 +453,32 @@ class ClientServer extends Thread{
 				}
 				
 				
+				InetAddress ip = receivePacket.getAddress();
+				int port = receivePacket.getPort();
+								
+				DatagramPacket sendPacket = new DatagramPacket(sendAck, sendAck.length, ip, port);
+				this.listenSocket.send(sendPacket);
+				
 				System.out.print("[");
 				for (int j = 0; j < cmd.length; j++){
 					if (j > 0)
 						System.out.print(" ");
-					System.out.print(cmd[j]);
+					if (cmd[j].equals("&buy&") == false)
+						System.out.print(cmd[j]);
 				}
 				System.out.println("]");
+				System.out.print("sobs> ");
+				
+				if (cmd[0].equals("&buy&")){
+					client.directSell(cmd[1], cmd[6]);
+				}
 			}
 		}catch(IOException e){
 			e.printStackTrace();
 		}
 	}
 	
+
 	private void updateTable(int n) {
 		client.clientTable.clear();
 		try{
@@ -395,6 +522,8 @@ class ClientServer extends Thread{
 		}
 		System.out.println("[Client Table Updated.]");
 		System.out.println(client.clientTable.toString());
+		System.out.print("sobs> ");
+		
 	}
 
 }

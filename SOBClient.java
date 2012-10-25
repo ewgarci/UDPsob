@@ -1,6 +1,8 @@
 package sobs;
 
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.List;
 
 public class SOBClient {
 	private String retMsg;
@@ -9,6 +11,7 @@ public class SOBClient {
 	private InetAddress ipAddress;
 	private int mainPort;
 	private int listenPort;
+	private List <String>  msgQ;
 	
 	
 	public boolean isRegistered() {
@@ -53,6 +56,12 @@ public class SOBClient {
 	public String printClient() {
 		return this.username + " " + this.ipAddress.getHostAddress() + " " + this.mainPort + " " + this.listenPort;		
 		
+	}
+	public List <String> getMsgQ() {
+		return msgQ;
+	}
+	public void initMsgQ() {
+		this.msgQ =new ArrayList<String>();
 	}
 	
 	
